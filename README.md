@@ -1,3 +1,3 @@
 # lumedex
 
-sum pokwdex or smth idk
+sum pokedex or smth idk
