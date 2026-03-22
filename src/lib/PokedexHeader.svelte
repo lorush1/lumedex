@@ -4,9 +4,7 @@
 
 <div class="pdx-header">
 	<div>
-		<p class="pdx-badge">National Dex</p>
-		<h1>Phase 2 Pokedex</h1>
+		<p class="pdx-badge">Lumedex</p>
 		<p>{visible} of {total} entries</p>
 	</div>
-	<button type="button" class="pdx-btn">Scan region</button>
 </div>
