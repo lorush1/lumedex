@@ -1,5 +1,7 @@
 <script lang='ts'>
 	import { createEventDispatcher, tick } from 'svelte';
+	import PokemonTactics from '$lib/PokemonTactics.svelte';
+	import MoveList from '$lib/MoveList.svelte';
 
 type Pokemon = { id: number; name: string };
 type EvolutionInfo = {
@@ -9,6 +11,22 @@ type EvolutionInfo = {
 	types: string[];
 	stats: { label: string; value: number }[];
 };
+type LearnMethod = { name?: string };
+type VersionDetail = { move_learn_method?: LearnMethod };
+type PokemonMove = {
+	move?: { name?: string; url?: string };
+	version_group_details?: VersionDetail[];
+};
+type MoveMeta = { type: string; category: string; power: number | null };
+type MoveRow = {
+	name: string;
+	type: string;
+	category: string;
+	power: number | null;
+	learnMethod: string;
+	moveUrl: string;
+};
+const moveMetaCache = new Map<string, MoveMeta>();
 
 	let { selected = null, open = false } = $props();
 
@@ -16,6 +34,8 @@ type EvolutionInfo = {
 
 	let details = $state(null as any);
 	let fetchState = $state<'idle' | 'loading' | 'error'>('idle');
+	let infoView = $state<'overview' | 'moves'>('overview');
+	let moveMetaByName = $state<Record<string, MoveMeta>>({});
 	let evolutionVisible = $state(false);
 	let evolutionNames = $state<string[] | null>(null);
 	let evolutionStatus = $state<'idle' | 'loading' | 'error'>('idle');
@@ -35,6 +55,31 @@ type EvolutionInfo = {
 		statOrder
 			.map(n => details?.pokemon.stats?.find((s: any) => s.stat.name === n))
 			.filter(Boolean)
+	);
+	const baseMoveRows = $derived(
+		(details?.pokemon?.moves ?? [])
+			.map((entry: PokemonMove) => {
+				const method = entry.version_group_details?.[0]?.move_learn_method?.name ?? '';
+				return {
+					name: entry.move?.name ?? 'unknown',
+					learnMethod: method,
+					moveUrl: entry.move?.url ?? ''
+				};
+			})
+			.filter((m: { name: string; learnMethod: string }) => m.learnMethod === 'level-up' || m.learnMethod === 'machine')
+	);
+	const moveList = $derived(
+		baseMoveRows.map((move: { name: string; learnMethod: string; moveUrl: string }) => {
+			const meta = moveMetaByName[move.name];
+			return {
+				name: move.name,
+				type: meta?.type ?? '-',
+				category: meta?.category ?? '-',
+				power: meta?.power ?? null,
+				learnMethod: move.learnMethod,
+				moveUrl: move.moveUrl
+			} satisfies MoveRow;
+		})
 	);
 
 	let panelRef = $state<HTMLDivElement | null>(null);
@@ -159,17 +204,63 @@ type EvolutionInfo = {
 	};
 
 	const toggleEvolutions = () => {
+		infoView = 'overview';
 		evolutionVisible = !evolutionVisible;
 		if (!evolutionVisible || evolutionNames || evolutionStatus === 'loading') {
 			return;
 		}
 		void loadEvolutions();
 	};
+	const showOverview = () => {
+		infoView = 'overview';
+		evolutionVisible = false;
+	};
+	const showMoves = () => {
+		infoView = 'moves';
+		evolutionVisible = false;
+	};
+	const title = (value?: string) =>
+		value ? value.split('-').map(part => (part ? part[0].toUpperCase() + part.slice(1) : '')).join(' ') : '-';
+
+	$effect(() => {
+		const toFetch = baseMoveRows.filter((move: { name: string }) => !moveMetaCache.has(move.name));
+		if (!toFetch.length) {
+			moveMetaByName = Object.fromEntries(moveMetaCache.entries());
+			return;
+		}
+		let cancelled = false;
+		Promise.all(
+			toFetch.map(async (move: { name: string; moveUrl: string }) => {
+				try {
+					const url = move.moveUrl || `https://pokeapi.co/api/v2/move/${move.name}`;
+					const response = await fetch(url);
+					if (!response.ok) {
+						return;
+					}
+					const json: any = await response.json();
+					moveMetaCache.set(move.name, {
+						type: title(json?.type?.name),
+						category: title(json?.damage_class?.name),
+						power: json?.power ?? null
+					});
+				} catch {}
+			})
+		).finally(() => {
+			if (!cancelled) {
+				moveMetaByName = Object.fromEntries(moveMetaCache.entries());
+			}
+		});
+		return () => {
+			cancelled = true;
+		};
+	});
 
 	$effect(() => {
 		if (!open || !selected) {
 			details = null;
 			fetchState = 'idle';
+			infoView = 'overview';
+			moveMetaByName = {};
 			evolutionVisible = false;
 			evolutionNames = null;
 			evolutionStatus = 'idle';
@@ -179,6 +270,7 @@ type EvolutionInfo = {
 		}
 
 		evolutionVisible = false;
+		infoView = 'overview';
 		evolutionNames = null;
 		evolutionStatus = 'idle';
 		evolutionError = null;
@@ -269,6 +361,23 @@ type EvolutionInfo = {
 					<p class="pdx-details-flavor">{details.species.flavor}</p>
 
 					<div class="pdx-details-evo">
+						<div class="pdx-details-actions">
+						<button
+							type="button"
+							class="pdx-btn"
+							onclick={showOverview}
+							aria-pressed={infoView === 'overview'}
+						>
+							Overview
+						</button>
+						<button
+							type="button"
+							class="pdx-btn"
+							onclick={showMoves}
+							aria-pressed={infoView === 'moves'}
+						>
+							Moves
+						</button>
 						<button
 							type="button"
 							class="pdx-btn"
@@ -277,6 +386,18 @@ type EvolutionInfo = {
 						>
 							Evolutions
 						</button>
+						</div>
+						{#if !evolutionVisible && infoView === 'overview'}
+							<PokemonTactics
+								pokemon={{
+									types: details.pokemon.types.map((t: any) => t.type.name),
+									stats: details.pokemon.stats
+								}}
+							/>
+						{/if}
+						{#if !evolutionVisible && infoView === 'moves'}
+							<MoveList moves={moveList} />
+						{/if}
 						{#if evolutionVisible}
 							{#if evolutionStatus === 'loading'}
 								<p class="pdx-details-evo-status">Loading evolutions...</p>
@@ -320,16 +441,6 @@ type EvolutionInfo = {
 							{/if}
 						{/if}
 					</div>
-					{#if !evolutionVisible}
-						<div class="pdx-details-stats">
-							{#each stats as s}
-								<div class="pdx-details-stat">
-									<span class="pdx-details-stat-name">{s.stat.name.replace(/-/g, ' ')}</span>
-									<span class="pdx-details-stat-val">{s.base_stat}</span>
-								</div>
-							{/each}
-						</div>
-					{/if}
 				</div>
 			</div>
 		{:else}
