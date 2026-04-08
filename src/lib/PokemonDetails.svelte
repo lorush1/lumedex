@@ -2,6 +2,7 @@
 	import { createEventDispatcher, tick } from 'svelte';
 	import PokemonTactics from '$lib/PokemonTactics.svelte';
 	import MoveList from '$lib/MoveList.svelte';
+	import PokemonRegistry from '$lib/PokemonRegistry.svelte';
 
 type Pokemon = { id: number; name: string };
 type EvolutionInfo = {
@@ -18,6 +19,12 @@ type PokemonMove = {
 	version_group_details?: VersionDetail[];
 };
 type MoveMeta = { type: string; category: string; power: number | null };
+type RegistryVariety = {
+	id: string;
+	label: string;
+	icon: string | null;
+	sprites: any;
+};
 type MoveRow = {
 	name: string;
 	type: string;
@@ -34,8 +41,9 @@ const moveMetaCache = new Map<string, MoveMeta>();
 
 	let details = $state(null as any);
 	let fetchState = $state<'idle' | 'loading' | 'error'>('idle');
-	let infoView = $state<'overview' | 'moves'>('overview');
+	let infoView = $state<'overview' | 'moves' | 'registry'>('overview');
 	let moveMetaByName = $state<Record<string, MoveMeta>>({});
+	let registryVarieties = $state<RegistryVariety[]>([]);
 	let evolutionVisible = $state(false);
 	let evolutionNames = $state<string[] | null>(null);
 	let evolutionStatus = $state<'idle' | 'loading' | 'error'>('idle');
@@ -81,6 +89,11 @@ const moveMetaCache = new Map<string, MoveMeta>();
 			} satisfies MoveRow;
 		})
 	);
+	const registryData = $derived({
+		name: details?.pokemon?.name ?? 'pokemon',
+		sprites: details?.pokemon?.sprites ?? {},
+		varieties: registryVarieties
+	});
 
 	let panelRef = $state<HTMLDivElement | null>(null);
 	let closeButton = $state<HTMLButtonElement | null>(null);
@@ -221,6 +234,7 @@ const moveMetaCache = new Map<string, MoveMeta>();
 	};
 	const title = (value?: string) =>
 		value ? value.split('-').map(part => (part ? part[0].toUpperCase() + part.slice(1) : '')).join(' ') : '-';
+	const formLabel = (value: string) => value.split('-').map(part => capitalize(part)).join(' ');
 
 	$effect(() => {
 		const toFetch = baseMoveRows.filter((move: { name: string }) => !moveMetaCache.has(move.name));
@@ -256,11 +270,70 @@ const moveMetaCache = new Map<string, MoveMeta>();
 	});
 
 	$effect(() => {
+		const speciesUrl = details?.pokemon?.species?.url;
+		if (!speciesUrl) {
+			registryVarieties = [];
+			return;
+		}
+		let cancelled = false;
+		(async () => {
+			try {
+				const speciesRes = await fetch(speciesUrl);
+				if (!speciesRes.ok) {
+					if (!cancelled) registryVarieties = [];
+					return;
+				}
+				const speciesJson: any = await speciesRes.json();
+				const varieties = speciesJson?.varieties ?? [];
+				const fetched = await Promise.all(
+					varieties.map(async (entry: any) => {
+						const name = entry?.pokemon?.name as string | undefined;
+						const url = entry?.pokemon?.url as string | undefined;
+						if (!name || !url) {
+							return null;
+						}
+						try {
+							const formRes = await fetch(url);
+							if (!formRes.ok) {
+								return null;
+							}
+							const formJson: any = await formRes.json();
+							const icon =
+								formJson?.sprites?.front_default ??
+								formJson?.sprites?.other?.['official-artwork']?.front_default ??
+								null;
+							return {
+								id: name,
+								label: formLabel(name),
+								icon,
+								sprites: formJson?.sprites ?? {}
+							} satisfies RegistryVariety;
+						} catch {
+							return null;
+						}
+					})
+				);
+				if (!cancelled) {
+					registryVarieties = fetched.filter(Boolean);
+				}
+			} catch {
+				if (!cancelled) {
+					registryVarieties = [];
+				}
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	});
+
+	$effect(() => {
 		if (!open || !selected) {
 			details = null;
 			fetchState = 'idle';
 			infoView = 'overview';
 			moveMetaByName = {};
+			registryVarieties = [];
 			evolutionVisible = false;
 			evolutionNames = null;
 			evolutionStatus = 'idle';
@@ -381,6 +454,17 @@ const moveMetaCache = new Map<string, MoveMeta>();
 						<button
 							type="button"
 							class="pdx-btn"
+							onclick={() => {
+								infoView = 'registry';
+								evolutionVisible = false;
+							}}
+							aria-pressed={infoView === 'registry'}
+						>
+							Registry
+						</button>
+						<button
+							type="button"
+							class="pdx-btn"
 							onclick={toggleEvolutions}
 							aria-expanded={evolutionVisible}
 						>
@@ -397,6 +481,9 @@ const moveMetaCache = new Map<string, MoveMeta>();
 						{/if}
 						{#if !evolutionVisible && infoView === 'moves'}
 							<MoveList moves={moveList} />
+						{/if}
+						{#if !evolutionVisible && infoView === 'registry'}
+							<PokemonRegistry pokemon={registryData} />
 						{/if}
 						{#if evolutionVisible}
 							{#if evolutionStatus === 'loading'}
