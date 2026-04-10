@@ -1,4 +1,7 @@
 <script lang="ts">
+import { onMount } from 'svelte';
+import TeamBuilder from '$lib/TeamBuilder.svelte';
+import { mountTeamBuilder } from '$lib/team';
 import PokedexHeader from '$lib/PokedexHeader.svelte';
 import PokedexSearch from '$lib/PokedexSearch.svelte';
 import PokemonGrid from '$lib/PokemonGrid.svelte';
@@ -85,6 +88,13 @@ const closeDetails = () => {
 	isDetailsOpen = false;
 	selected = null;
 };
+
+onMount(() => {
+	const root = document.querySelector('[data-team-builder-root]');
+	if (!root) return;
+	const cleanup = mountTeamBuilder(root as HTMLElement);
+	return cleanup;
+});
 </script>
 
 <main class="pdx-page">
@@ -98,6 +108,7 @@ const closeDetails = () => {
 			on:generationchange={handleGenerationFilterChange}
 		/>
 	</section>
+	<TeamBuilder />
 	<section>
 		<PokemonGrid pokemons={filteredPokemons} on:select={handleSelection} />
 	</section>

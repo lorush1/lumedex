@@ -176,8 +176,8 @@ const moveMetaCache = new Map<string, MoveMeta>();
 			if (details?.species?.evolutionChainUrl !== url) {
 				return;
 			}
-			evolutionDetails = fetched
-				.map((poke, index) => {
+			const evolutions = fetched
+				.map((poke): EvolutionInfo | null => {
 					if (!poke) {
 						return null;
 					}
@@ -196,7 +196,7 @@ const moveMetaCache = new Map<string, MoveMeta>();
 							}
 							return { label: entry.stat.name.replace(/-/g, ' '), value: entry.base_stat };
 						})
-						.filter(Boolean);
+						.filter((entry): entry is { label: string; value: number } => Boolean(entry));
 					return {
 						id: pokemon.id,
 						name: pokemon.name,
@@ -205,7 +205,8 @@ const moveMetaCache = new Map<string, MoveMeta>();
 						stats: evoStats
 					};
 				})
-				.filter(Boolean);
+				.filter((entry): entry is EvolutionInfo => Boolean(entry));
+			evolutionDetails = evolutions;
 			evolutionStatus = 'idle';
 		} catch {
 			if (details?.species?.evolutionChainUrl !== url) {
